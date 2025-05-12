@@ -1,0 +1,35 @@
+{
+  "name": "pswd-mgr",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsc && node dist/app.js"
+  },
+  "keywords": [],
+  "author": {
+    "name": "Thorminate",
+    "email": "inquiries@thorminate.com"
+  },
+  "license": "ISC",
+  "packageManager": "pnpm@10.10.0",
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/express": "^5.0.1",
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/node": "^22.15.15",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.10.1",
+    "@dotenvx/dotenvx": "^1.43.0",
+    "ansis": "^3.17.0",
+    "bcrypt": "^5.1.1",
+    "execa": "^9.5.3",
+    "express": "^5.1.0",
+    "express-rate-limit": "^7.5.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.14.1"
+  }
+}

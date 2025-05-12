@@ -1,0 +1,6 @@
+api/dist
+api/node_modules
+api/src/security/cert
+
+sdk/dist
+sdk/node_modules
