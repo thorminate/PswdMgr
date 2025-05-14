@@ -1,0 +1,19 @@
+{
+  "name": "cli",
+  "version": "0.0.1",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsc && node ./dist/index.js"
+  },
+  "keywords": [],
+  "author": "Thorminate <inquiries@thorminate.com>",
+  "license": "MIT",
+  "packageManager": "pnpm@10.10.0",
+  "type": "module",
+  "dependencies": {
+    "@clack/prompts": "^0.10.1",
+    "@types/node": "^22.15.18",
+    "pswd-mgr-sdk": "link:../../../Users/thorw/AppData/Local/pnpm/global/5/node_modules/pswd-mgr-sdk"
+  }
+}

@@ -2,5 +2,8 @@ api/dist
 api/node_modules
 api/src/security/cert
 
+cli/dist
+cli/node_modules
+
 sdk/dist
 sdk/node_modules

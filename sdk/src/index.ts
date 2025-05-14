@@ -3,6 +3,7 @@ import https from "https";
 
 interface Token {
   str: string;
+  refreshToken: string;
   expiresAt: number;
 }
 
@@ -22,18 +23,15 @@ const httpsAgent = new https.Agent({
 
 interface PswdMgrClientOptions {
   connectionString: string;
-  verbose?: boolean;
 }
 
 export default class PswdMgrClient {
   private connectionString: string;
   private password?: string;
   private token?: Token;
-  private verbose: boolean;
 
-  constructor({ connectionString, verbose = false }: PswdMgrClientOptions) {
+  constructor({ connectionString }: PswdMgrClientOptions) {
     this.connectionString = connectionString;
-    this.verbose = verbose;
   }
 
   async login(password: string): Promise<void> {
@@ -50,7 +48,9 @@ export default class PswdMgrClient {
       )
       .catch((e) => {
         if (e.code === "ECONNREFUSED") {
-          throw new Error("Could not connect to server (is it running?)");
+          throw new Error(
+            "ECONNREFUSED: Could not connect to server (is it running?)"
+          );
         } else {
           throw e;
         }
@@ -62,6 +62,7 @@ export default class PswdMgrClient {
 
     this.token = {
       str: res.data.token,
+      refreshToken: res.data.refreshToken,
       expiresAt: Date.now() + 15 * 60 * 1000,
     };
   }
@@ -72,9 +73,12 @@ export default class PswdMgrClient {
     }
 
     const res = await axios.post(
-      this.connectionString + "/login",
-      { password: this.password },
+      this.connectionString + "/refresh",
+      { refreshToken: this.token?.refreshToken },
       {
+        headers: {
+          Authorization: `Bearer ${this.token?.str}`,
+        },
         httpsAgent,
         validateStatus: () => true,
       }
@@ -86,7 +90,8 @@ export default class PswdMgrClient {
 
     this.token = {
       str: res.data.token,
-      expiresAt: Date.now() + 15 * 60 * 1000,
+      refreshToken: res.data.refreshToken,
+      expiresAt: Date.now() + 5 * 60 * 1000,
     };
   }
 
@@ -104,6 +109,25 @@ export default class PswdMgrClient {
     );
   }
 
+  async testConnection(): Promise<void> {
+    const res = await axios
+      .get(this.connectionString + "/health", {
+        httpsAgent,
+        validateStatus: () => true,
+      })
+      .catch((e) => {
+        return;
+      });
+
+    if (!res) {
+      throw new Error("Connection failed");
+    }
+
+    if (res.status !== 200) {
+      throw new Error("Connection failed");
+    }
+  }
+
   private async request(
     method: string,
     path: string,
@@ -112,7 +136,6 @@ export default class PswdMgrClient {
     if (!this.token) {
       throw new Error("Not logged in");
     } else if (this.token.expiresAt < Date.now()) {
-      if (this.verbose) console.log("Token expired, refreshing...");
       await this.refresh();
     }
 

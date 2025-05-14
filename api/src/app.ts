@@ -5,9 +5,9 @@ import * as clack from "@clack/prompts";
 import colors, { AnsiColors } from "ansis";
 import {
   authMiddleware,
-  blacklistMiddleware,
-  generateToken,
+  generateTokens,
   verifyPassword,
+  verifyRefreshToken,
 } from "./security/auth.js";
 import { decrypt, deriveKey, encrypt } from "./security/crypto.js";
 import VaultEntry from "./models/VaultEntry.js";
@@ -185,14 +185,14 @@ app.post("/login", authLimiter, async ({ body: { password }, ip }, res) => {
     return;
   }
 
-  const token = generateToken(ip);
+  const [accessToken, refreshToken] = generateTokens(ip);
 
   clack.log.info(
-    colors.blueBright`${ip} authenticated, token: ${token.substring(
-      token.length - 8
+    colors.blueBright`${ip} authenticated, access token: ${accessToken.substring(
+      accessToken.length - 8
     )}`
   );
-  res.status(200).json({ token });
+  res.status(200).json({ token: accessToken, refreshToken });
 });
 
 const generalLimiter = rateLimit({
@@ -206,17 +206,19 @@ const generalLimiter = rateLimit({
 app.use(generalLimiter);
 
 app.get("/health", (req, res) => {
-  res.status(200).json({ message: "Doin juuust fine!" });
+  res.status(200).json({ message: "OK" });
 });
 
-app.use(authMiddleware, blacklistMiddleware);
+app.use(authMiddleware);
 
 app.post("/logout", async (req, res) => {
   const token = req.headers.authorization?.split(" ")[1];
 
   if (!token) {
     res.status(401).send({ error: "Token invalid" });
-    clack.log.warn(colors.yellow`Failed token auth attempt from ${req.ip}`);
+    clack.log.warn(
+      colors.yellow`Failed token auth attempt from ${req.ip} - No token passed: ${req.headers.authorization}`
+    );
     return;
   }
 
@@ -228,44 +230,68 @@ app.post("/logout", async (req, res) => {
 
     if (!jti || !exp) {
       res.status(401).send({ error: "Token invalid" });
-      clack.log.warn(colors.yellow`Failed token auth attempt from ${req.ip}`);
+      clack.log.warn(
+        colors.yellow`Failed token auth attempt from ${req.ip} - No jti or exp found in token`
+      );
       return;
     }
 
     const expiresAt = new Date(exp * 1000);
 
     await TokenBlacklist.create({
-      jti,
+      _id: jti,
       expiresAt,
     });
 
     res.status(200).send({ message: "Logged out successfully" });
   } catch (e) {
     res.status(401).send({ error: "Token invalid" });
-    clack.log.warn(colors.yellow`Failed token auth attempt from ${req.ip}`);
+    clack.log.warn(
+      colors.yellow`Failed token auth attempt from ${req.ip} - error: ${e}`
+    );
   }
 });
 
-app.post("/entries", async ({ body: { id, secret } }, res) => {
-  if (!id) {
-    res.status(400).send({ error: "Id is required" });
+app.post("/refresh", async ({ body: { refreshToken }, ip }, res) => {
+  if (!refreshToken) {
+    clack.log.error(colors.red`Refresh token is missing for ${ip}`);
+    res.status(401).send({ error: "Refresh token is missing" });
     return;
   }
-  const encrypted = await encrypt(masterKey, secret);
 
-  const entry = await VaultEntry.findByIdAndUpdate(
-    id,
+  if (!ip) {
+    clack.log.error(colors.yellow`IP address could not be determined`);
+    res.status(400).send({
+      error: "Your IP address could not be determined",
+      hint: "Ensure the request includes proper headers or is not proxied incorrectly.",
+    });
+    return;
+  }
+
+  const [isValid, payload] = verifyRefreshToken(refreshToken, ip);
+  if (!isValid) {
+    clack.log.error(colors.red`Refresh token is invalid for ${ip}`);
+    res.status(401).send({ error: "Refresh token is invalid" });
+    return;
+  }
+
+  await TokenBlacklist.findByIdAndUpdate(
+    payload.jti,
     {
-      encrypted,
+      _id: payload.jti,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000),
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 
-  clack.log.info(colors.green`Created or updated entry ${id}`);
-  res.status(201).json({
-    id: entry._id,
-    encrypted: entry.encrypted,
-  });
+  const [accessToken, newRefreshToken] = generateTokens(ip);
+
+  clack.log.info(
+    colors.blueBright`${ip} refreshed token, access token: ${accessToken.substring(
+      accessToken.length - 8
+    )}`
+  );
+  res.status(200).json({ token: accessToken, refreshToken: newRefreshToken });
 });
 
 app.post(
@@ -353,10 +379,45 @@ app.post(
   }
 );
 
+app.post(
+  "/entries",
+  async ({ body: { id, secret }, headers: { authorization: token } }, res) => {
+    if (!id) {
+      res.status(400).send({ error: "Id is required" });
+      return;
+    }
+    const encrypted = await encrypt(masterKey, secret);
+
+    const entry = await VaultEntry.findByIdAndUpdate(
+      id,
+      {
+        encrypted,
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    clack.log.info(
+      colors.green`Created or updated entry ${id} with token: ${token!.substring(
+        token!.length - 8
+      )}`
+    );
+    res.status(201).json({
+      id: entry._id,
+      encrypted: entry.encrypted,
+    });
+  }
+);
+
 app.get("/entries", async (req, res) => {
   const entries = await VaultEntry.find({});
 
-  clack.log.info(colors.green`Fetched ${entries.length} entries`);
+  clack.log.info(
+    colors.green`Fetched ${
+      entries.length
+    } entries with token: ${req.headers.authorization?.substring(
+      req.headers.authorization.length - 8
+    )}`
+  );
   res.status(200).json(entries.map(({ _id }) => _id));
 });
 
@@ -373,7 +434,13 @@ app.get("/entries/:id", async (req, res) => {
 
   const decryptedData = await decrypt(masterKey, entry.encrypted);
 
-  clack.log.info(colors.green`Fetched entry ${req.params.id}`);
+  clack.log.info(
+    colors.green`Fetched entry ${
+      req.params.id
+    } with token: ${req.headers.authorization?.substring(
+      req.headers.authorization.length - 8
+    )}`
+  );
   res.status(200).json({ secret: decryptedData, id: entry._id });
 });
 

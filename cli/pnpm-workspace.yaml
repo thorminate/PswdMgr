@@ -1,0 +1,4 @@
+onlyBuiltDependencies:
+  - deasync
+overrides:
+  pswd-mgr-sdk: link:../../../Users/thorw/AppData/Local/pnpm/global/5/node_modules/pswd-mgr-sdk

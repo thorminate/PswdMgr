@@ -1,7 +1,7 @@
 import { model, Schema } from "mongoose";
 
 const TokenBlacklistSchema = new Schema({
-  jti: { type: String, required: true, unique: true },
+  _id: String,
   expiresAt: { type: Date, required: true },
 });
 
